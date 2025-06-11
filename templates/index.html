@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}资源概览 - 服务器使用登记系统{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">服务器资源使用概览</h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card resource-card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">9755服务器</h4>
+            </div>
+            <div class="card-body">
+                <div class="resource-usage">
+                    <p id="nodes-9755-text">节点: {{ resources['9755']['nodes_used'] }}/{{ resources['9755']['nodes_total'] }} (剩余: {{ resources['9755']['nodes_remaining'] }})</p>
+                    <p id="nodes-9755-detail" class="text-muted small">
+                        可用节点: {% if resources['9755']['nodes_available'] %}{{ resources['9755']['nodes_available']|join(', ') }}{% else %}无{% endif %} | 
+                        占用节点: {% if resources['9755']['nodes_occupied'] %}{{ resources['9755']['nodes_occupied']|join(', ') }}{% else %}无{% endif %}
+                    </p>
+                    <div class="progress mb-3">
+                        <div id="nodes-9755-progress" class="progress-bar bg-info" role="progressbar" 
+                             style="width: {{ (resources['9755']['nodes_used'] / resources['9755']['nodes_total'] * 100) }}%">
+                        </div>
+                    </div>
+                    
+                    <p id="gpu-9755-text">GPU: {{ resources['9755']['gpu_used'] }}/{{ resources['9755']['gpu_total'] }} (剩余: {{ resources['9755']['gpu_remaining'] }})</p>
+                    <p id="gpu-9755-detail" class="text-muted small">
+                        可用GPU: {% if resources['9755']['gpu_available'] %}{{ resources['9755']['gpu_available']|join(', ') }}{% else %}无{% endif %} | 
+                        占用GPU: {% if resources['9755']['gpu_occupied'] %}{{ resources['9755']['gpu_occupied']|join(', ') }}{% else %}无{% endif %}
+                    </p>
+                    <div class="progress mb-3">
+                        <div id="gpu-9755-progress" class="progress-bar bg-warning" role="progressbar" 
+                             style="width: {{ (resources['9755']['gpu_used'] / resources['9755']['gpu_total'] * 100) }}%">
+                        </div>
+                    </div>
+                    
+                    <p id="remote-9755-text">远程桌面: {{ resources['9755']['remote_desktop_used'] }} 人在使用</p>
+                </div>
+                <a href="/9755" class="btn btn-primary">查看详情</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card resource-card">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0">5520+服务器</h4>
+            </div>
+            <div class="card-body">
+                <div class="resource-usage">
+                    <p id="cores-5520-text">核数: {{ resources['5520']['cores_used'] }}/{{ resources['5520']['cores_total'] }} (剩余: {{ resources['5520']['cores_remaining'] }})</p>
+                    <div class="progress mb-3">
+                        <div id="cores-5520-progress" class="progress-bar bg-info" role="progressbar" 
+                             style="width: {{ (resources['5520']['cores_used'] / resources['5520']['cores_total'] * 100) }}%">
+                        </div>
+                    </div>
+                    
+                    <p id="gpu-5520-text">GPU: {{ resources['5520']['gpu_used'] }}/{{ resources['5520']['gpu_total'] }} (剩余: {{ resources['5520']['gpu_remaining'] }})</p>
+                    <div class="progress mb-3">
+                        <div id="gpu-5520-progress" class="progress-bar bg-warning" role="progressbar" 
+                             style="width: {{ (resources['5520']['gpu_used'] / resources['5520']['gpu_total'] * 100) }}%">
+                        </div>
+                    </div>
+                    
+                    <p id="remote-5520-text">远程桌面: {{ resources['5520']['remote_desktop_used'] }} 人在使用</p>
+                </div>
+                <a href="/5520" class="btn btn-success">查看详情</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <h5>服务器规格：</h5>
+            <ul class="mb-0">
+                <li><strong>9755服务器：</strong>4个节点，2张GPU</li>
+                <li><strong>5520+服务器：</strong>56个核心，1张GPU</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

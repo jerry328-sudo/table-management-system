@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}服务器使用登记系统{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding-top: 60px; }
+        .navbar-brand { font-weight: bold; }
+        .resource-card { margin-bottom: 20px; }
+        .resource-usage { margin-top: 10px; }
+        .progress { height: 25px; }
+        .table-responsive { max-height: 600px; overflow-y: auto; }
+        .form-container { background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+        <div class="container">
+            <a class="navbar-brand" href="/">课题组服务器使用登记系统</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">资源概览</a>
+                <a class="nav-link" href="/9755">9755服务器</a>
+                <a class="nav-link" href="/5520">5520+服务器</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 自动刷新资源使用情况
+        function updateResources() {
+            fetch('/api/resources')
+                .then(response => response.json())
+                .then(data => {
+                    // 更新9755资源显示
+                    if (document.getElementById('nodes-9755-progress')) {
+                        const nodesUsage = (data['9755']['nodes_used'] / data['9755']['nodes_total']) * 100;
+                        document.getElementById('nodes-9755-progress').style.width = nodesUsage + '%';
+                        document.getElementById('nodes-9755-text').textContent = 
+                            `节点: ${data['9755']['nodes_used']}/${data['9755']['nodes_total']} (剩余: ${data['9755']['nodes_remaining']})`;
+                        
+                        // 更新详细信息
+                        if (document.getElementById('nodes-9755-detail')) {
+                            const availableNodes = data['9755']['nodes_available'].length > 0 ? data['9755']['nodes_available'].join(', ') : '无';
+                            const occupiedNodes = data['9755']['nodes_occupied'].length > 0 ? data['9755']['nodes_occupied'].join(', ') : '无';
+                            document.getElementById('nodes-9755-detail').textContent = 
+                                `可用节点: ${availableNodes} | 占用节点: ${occupiedNodes}`;
+                        }
+                    }
+                    
+                    if (document.getElementById('gpu-9755-progress')) {
+                        const gpuUsage = (data['9755']['gpu_used'] / data['9755']['gpu_total']) * 100;
+                        document.getElementById('gpu-9755-progress').style.width = gpuUsage + '%';
+                        document.getElementById('gpu-9755-text').textContent = 
+                            `GPU: ${data['9755']['gpu_used']}/${data['9755']['gpu_total']} (剩余: ${data['9755']['gpu_remaining']})`;
+                        
+                        // 更新详细信息
+                        if (document.getElementById('gpu-9755-detail')) {
+                            const availableGPUs = data['9755']['gpu_available'].length > 0 ? data['9755']['gpu_available'].join(', ') : '无';
+                            const occupiedGPUs = data['9755']['gpu_occupied'].length > 0 ? data['9755']['gpu_occupied'].join(', ') : '无';
+                            document.getElementById('gpu-9755-detail').textContent = 
+                                `可用GPU: ${availableGPUs} | 占用GPU: ${occupiedGPUs}`;
+                        }
+                    }
+                    
+                    // 更新远程桌面信息
+                    if (document.getElementById('remote-9755-text')) {
+                        document.getElementById('remote-9755-text').textContent = 
+                            `远程桌面: ${data['9755']['remote_desktop_used']} 人在使用`;
+                    }
+                    
+                    // 更新5520+资源显示
+                    if (document.getElementById('cores-5520-progress')) {
+                        const coresUsage = (data['5520']['cores_used'] / data['5520']['cores_total']) * 100;
+                        document.getElementById('cores-5520-progress').style.width = coresUsage + '%';
+                        document.getElementById('cores-5520-text').textContent = 
+                            `核数: ${data['5520']['cores_used']}/${data['5520']['cores_total']} (剩余: ${data['5520']['cores_remaining']})`;
+                    }
+                    
+                    if (document.getElementById('gpu-5520-progress')) {
+                        const gpuUsage = (data['5520']['gpu_used'] / data['5520']['gpu_total']) * 100;
+                        document.getElementById('gpu-5520-progress').style.width = gpuUsage + '%';
+                        document.getElementById('gpu-5520-text').textContent = 
+                            `GPU: ${data['5520']['gpu_used']}/${data['5520']['gpu_total']} (剩余: ${data['5520']['gpu_remaining']})`;
+                    }
+                    
+                    // 更新远程桌面信息
+                    if (document.getElementById('remote-5520-text')) {
+                        document.getElementById('remote-5520-text').textContent = 
+                            `远程桌面: ${data['5520']['remote_desktop_used']} 人在使用`;
+                    }
+                });
+        }
+        
+        // 每30秒更新一次资源使用情况
+        setInterval(updateResources, 30000);
+    </script>
+</body>
+</html>
