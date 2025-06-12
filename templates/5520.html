@@ -11,7 +11,7 @@
 
 <div class="row">
     <div class="col-md-8">
-        <div class="form-container">
+        <div class="form-container glass-form">
             <h3>添加新的使用记录</h3>
             <form method="POST" action="/add_5520">
                 <div class="row">
@@ -74,15 +74,15 @@
                     </div>
                 </div>
                 
-                <button type="submit" class="btn btn-primary">添加记录</button>
-                <a href="/" class="btn btn-secondary ms-2">返回首页</a>
+                <button type="submit" class="btn glass-btn">添加记录</button>
+                <a href="/" class="btn glass-btn ms-2">返回首页</a>
             </form>
         </div>
     </div>
     
     <div class="col-md-4">
-        <div class="card">
-            <div class="card-header bg-success text-white">
+        <div class="card glass-card">
+            <div class="card-header glass-header text-white">
                 <h5 class="mb-0">当前资源使用</h5>
             </div>
             <div class="card-body">
@@ -98,7 +98,7 @@
 <div class="row mt-4">
     <div class="col-12">
         <h3>使用记录</h3>
-        <div class="table-responsive">
+        <div class="table-responsive glass-table">
             <table class="table table-striped table-hover">
                 <thead class="table-success">
                     <tr>
@@ -124,9 +124,9 @@
                         <td>{{ record['预计使用时间'] }}</td>
                         <td>
                             {% if record['是否完成'] == 'Yes' %}
-                                <button class="btn btn-sm btn-success status-btn" data-index="{{ loop.index0 }}" data-current="Yes">已完成</button>
+                                <button class="btn btn-sm glass-btn status-btn" data-index="{{ loop.index0 }}" data-current="Yes">已完成</button>
                             {% else %}
-                                <button class="btn btn-sm btn-warning status-btn" data-index="{{ loop.index0 }}" data-current="">进行中</button>
+                                <button class="btn btn-sm glass-btn status-btn" data-index="{{ loop.index0 }}" data-current="">进行中</button>
                             {% endif %}
                         </td>
                     </tr>

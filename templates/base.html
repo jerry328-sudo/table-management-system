@@ -5,8 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}服务器使用登记系统{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/glass-effects.css') }}" rel="stylesheet">
     <style>
-        body { padding-top: 60px; }
+        body { 
+            padding-top: 60px; 
+            background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #f5576c);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+            min-height: 100vh;
+        }
         .navbar-brand { font-weight: bold; }
         .resource-card { margin-bottom: 20px; }
         .resource-usage { margin-top: 10px; }
@@ -16,7 +23,7 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top glass-nav">
         <div class="container">
             <a class="navbar-brand" href="/">课题组服务器使用登记系统</a>
             <div class="navbar-nav ms-auto">
@@ -32,6 +39,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/animations.js') }}"></script>
     <script>
         // 自动刷新资源使用情况
         function updateResources() {
@@ -41,7 +49,7 @@
                     // 更新9755资源显示
                     if (document.getElementById('nodes-9755-progress')) {
                         const nodesUsage = (data['9755']['nodes_used'] / data['9755']['nodes_total']) * 100;
-                        document.getElementById('nodes-9755-progress').style.width = nodesUsage + '%';
+                        animateProgressUpdate(document.getElementById('nodes-9755-progress'), nodesUsage + '%');
                         document.getElementById('nodes-9755-text').textContent = 
                             `节点: ${data['9755']['nodes_used']}/${data['9755']['nodes_total']} (剩余: ${data['9755']['nodes_remaining']})`;
                         
@@ -56,7 +64,7 @@
                     
                     if (document.getElementById('gpu-9755-progress')) {
                         const gpuUsage = (data['9755']['gpu_used'] / data['9755']['gpu_total']) * 100;
-                        document.getElementById('gpu-9755-progress').style.width = gpuUsage + '%';
+                        animateProgressUpdate(document.getElementById('gpu-9755-progress'), gpuUsage + '%');
                         document.getElementById('gpu-9755-text').textContent = 
                             `GPU: ${data['9755']['gpu_used']}/${data['9755']['gpu_total']} (剩余: ${data['9755']['gpu_remaining']})`;
                         
@@ -78,14 +86,14 @@
                     // 更新5520+资源显示
                     if (document.getElementById('cores-5520-progress')) {
                         const coresUsage = (data['5520']['cores_used'] / data['5520']['cores_total']) * 100;
-                        document.getElementById('cores-5520-progress').style.width = coresUsage + '%';
+                        animateProgressUpdate(document.getElementById('cores-5520-progress'), coresUsage + '%');
                         document.getElementById('cores-5520-text').textContent = 
                             `核数: ${data['5520']['cores_used']}/${data['5520']['cores_total']} (剩余: ${data['5520']['cores_remaining']})`;
                     }
                     
                     if (document.getElementById('gpu-5520-progress')) {
                         const gpuUsage = (data['5520']['gpu_used'] / data['5520']['gpu_total']) * 100;
-                        document.getElementById('gpu-5520-progress').style.width = gpuUsage + '%';
+                        animateProgressUpdate(document.getElementById('gpu-5520-progress'), gpuUsage + '%');
                         document.getElementById('gpu-5520-text').textContent = 
                             `GPU: ${data['5520']['gpu_used']}/${data['5520']['gpu_total']} (剩余: ${data['5520']['gpu_remaining']})`;
                     }

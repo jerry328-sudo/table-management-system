@@ -5,7 +5,8 @@
       "Bash(conda activate:*)",
       "Bash(pip install:*)",
       "Bash(source:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
