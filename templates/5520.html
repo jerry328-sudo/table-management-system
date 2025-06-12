@@ -13,7 +13,7 @@
     <div class="col-md-8">
         <div class="form-container">
             <h3>添加新的使用记录</h3>
-            <form method="POST" action="/add_5520">
+            <form method="POST" action="/add_5520" id="form-5520">
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         <label for="time" class="form-label">时间</label>
@@ -109,6 +109,7 @@
                         <th>远程桌面</th>
                         <th>任务类型</th>
                         <th>预计使用时间</th>
+                        <th>实际使用时间</th>
                         <th>是否完成</th>
                     </tr>
                 </thead>
@@ -122,6 +123,10 @@
                         <td>{{ record['是否使用远程桌面'] }}</td>
                         <td>{{ record['任务类型'] }}</td>
                         <td>{{ record['预计使用时间'] }}</td>
+                        <td>
+                            <span class="actual-time" data-index="{{ loop.index0 }}">{{ record.get('实际使用时间', '') or '未设置' }}</span>
+                            <button class="btn btn-sm btn-outline-secondary ms-1 edit-time-btn" data-index="{{ loop.index0 }}" title="编辑实际使用时间">编辑</button>
+                        </td>
                         <td>
                             {% if record['是否完成'] == 'Yes' %}
                                 <button class="btn btn-sm btn-success status-btn" data-index="{{ loop.index0 }}" data-current="Yes">已完成</button>
@@ -141,6 +146,78 @@
 document.addEventListener('DOMContentLoaded', function() {
     // 设置当前日期
     document.getElementById('time').value = new Date().toISOString().split('T')[0].replace(/-/g, '.');
+    
+    // 表单验证
+    document.getElementById('form-5520').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const remote = document.getElementById('remote').value;
+        const cores = document.getElementById('cores').value;
+        const gpu = document.getElementById('gpu').value;
+        
+        // 获取当前资源状态进行验证
+        fetch('/api/resources')
+            .then(response => response.json())
+            .then(data => {
+                let errors = [];
+                
+                // 检查远程桌面冲突
+                if (remote === 'Yes' && data['5520']['remote_desktop_used'] > 0) {
+                    errors.push('远程桌面已被占用，请等待当前任务完成后再申请');
+                }
+                
+                // 检查核数资源
+                if (cores) {
+                    let requestedCores = 0;
+                    if (cores.toLowerCase() === 'all') {
+                        requestedCores = data['5520']['cores_total'];
+                    } else {
+                        requestedCores = parseInt(cores);
+                        if (isNaN(requestedCores) || requestedCores <= 0) {
+                            errors.push('请输入有效的核数 (数字或"all")');
+                        }
+                    }
+                    
+                    if (requestedCores > data['5520']['cores_remaining']) {
+                        errors.push(`请求的核数 (${requestedCores}) 超过剩余核数 (${data['5520']['cores_remaining']})`);
+                    }
+                }
+                
+                // 检查GPU资源
+                if (gpu === 'Yes' && data['5520']['gpu_remaining'] === 0) {
+                    errors.push('GPU已被占用，请等待当前任务完成后再申请');
+                }
+                
+                if (errors.length > 0) {
+                    alert('提交失败：\\n\\n' + errors.join('\\n'));
+                } else {
+                    // 如果验证通过，使用fetch提交表单以处理可能的服务端错误
+                    const formData = new FormData(this);
+                    fetch('/add_5520', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => {
+                        if (response.redirected) {
+                            // 成功提交，重定向到目标页面
+                            window.location.href = response.url;
+                        } else if (!response.ok) {
+                            // 服务端验证失败，显示错误信息
+                            return response.json().then(data => {
+                                throw new Error(data.error || '提交失败');
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        alert('提交失败：\\n\\n' + error.message);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('验证失败:', error);
+                alert('无法验证资源状态，请稍后重试');
+            });
+    });
     
     // 更新资源信息
     function updateResourceInfo() {
@@ -200,6 +277,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('Error:', error);
                 alert('更新状态失败');
             });
+        }
+        
+        // 处理实际使用时间编辑
+        if (e.target.classList.contains('edit-time-btn')) {
+            const btn = e.target;
+            const index = parseInt(btn.dataset.index);
+            const timeSpan = btn.previousElementSibling;
+            const currentTime = timeSpan.textContent === '未设置' ? '' : timeSpan.textContent;
+            
+            const newTime = prompt('请输入实际使用时间 (例如: 2025.6.7~2025.6.10 或 72小时):', currentTime);
+            if (newTime !== null && newTime !== currentTime) {
+                fetch(`/api/update_actual_time_5520/${index}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ actual_time: newTime })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        timeSpan.textContent = newTime || '未设置';
+                    } else {
+                        alert('更新实际使用时间失败');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('更新实际使用时间失败');
+                });
+            }
         }
     });
 });

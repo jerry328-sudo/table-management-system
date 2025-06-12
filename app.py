@@ -1,11 +1,12 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import shutil
 import time
 import threading
 from functools import wraps
+import re
 
 app = Flask(__name__)
 
@@ -28,16 +29,22 @@ class ServerManager:
         self.init_excel_files()
     
     def init_excel_files(self):
-        columns_9755 = ['时间', '姓名', '占用节点', '占用GPU', '是否使用远程桌面', '任务类型', '预计使用时间', '是否完成']
-        columns_5520 = ['时间', '姓名', '使用核数', '占用GPU', '是否使用远程桌面', '任务类型', '预计使用时间', '是否完成']
+        columns_9755 = ['时间', '姓名', '占用节点', '占用GPU', '是否使用远程桌面', '任务类型', '预计使用时间', '实际使用时间', '是否完成']
+        columns_5520 = ['时间', '姓名', '使用核数', '占用GPU', '是否使用远程桌面', '任务类型', '预计使用时间', '实际使用时间', '是否完成']
         
         if not os.path.exists(self.excel_9755):
             df = pd.DataFrame(columns=columns_9755)
             df.to_excel(self.excel_9755, index=False)
+        else:
+            # 检查并添加新列
+            self._add_missing_columns(self.excel_9755, columns_9755)
         
         if not os.path.exists(self.excel_5520):
             df = pd.DataFrame(columns=columns_5520)
             df.to_excel(self.excel_5520, index=False)
+        else:
+            # 检查并添加新列
+            self._add_missing_columns(self.excel_5520, columns_5520)
     
     def _get_file_modified_time(self, filename):
         if os.path.exists(filename):
@@ -70,6 +77,197 @@ class ServerManager:
                     del self._cache[key]
             else:
                 self._cache.clear()
+    
+    def _add_missing_columns(self, filename, expected_columns):
+        """为现有Excel文件添加缺失的列"""
+        df = pd.read_excel(filename)
+        current_columns = list(df.columns)
+        
+        # 检查是否需要添加新列
+        missing_columns = [col for col in expected_columns if col not in current_columns]
+        
+        if missing_columns:
+            for col in missing_columns:
+                if col == '实际使用时间':
+                    # 如果没有实际使用时间列，用预计使用时间填充
+                    df[col] = df.get('预计使用时间', '')
+                else:
+                    df[col] = ''
+            
+            # 按照期望的列顺序重新排列
+            df = df.reindex(columns=expected_columns)
+            df.to_excel(filename, index=False)
+    
+    def _parse_time_duration(self, time_str):
+        """解析时间字符串，返回小时数"""
+        if not time_str or pd.isna(time_str):
+            return 0
+        
+        time_str = str(time_str).strip().lower()
+        
+        # 首先检查是否是日期范围格式
+        date_range_patterns = [
+            r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\s*[~\-到至]\s*(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})',  # 2025.6.10~2025.6.12
+            r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\s*[~\-到至]\s*(\d{1,2})[.\-/](\d{1,2})',  # 2025.6.10~6.12
+        ]
+        
+        for pattern in date_range_patterns:
+            match = re.search(pattern, time_str)
+            if match:
+                try:
+                    groups = match.groups()
+                    if len(groups) == 6:  # 完整日期范围
+                        start_year, start_month, start_day, end_year, end_month, end_day = groups
+                        start_date = datetime(int(start_year), int(start_month), int(start_day))
+                        end_date = datetime(int(end_year), int(end_month), int(end_day))
+                    else:  # 简化日期范围 (同年)
+                        start_year, start_month, start_day, end_month, end_day = groups
+                        start_date = datetime(int(start_year), int(start_month), int(start_day))
+                        end_date = datetime(int(start_year), int(end_month), int(end_day))
+                    
+                    # 计算天数差异并转换为小时
+                    delta = end_date - start_date
+                    return max(delta.days * 24, 24)  # 至少1天(24小时)
+                except (ValueError, TypeError):
+                    continue
+        
+        # 匹配单一日期格式 (默认为1天)
+        single_date_pattern = r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})'
+        match = re.search(single_date_pattern, time_str)
+        if match:
+            return 24  # 单日使用默认为24小时
+        
+        # 匹配各种时间单位格式
+        time_unit_patterns = [
+            (r'(\d+(?:\.\d+)?)\s*小时', 1),
+            (r'(\d+(?:\.\d+)?)\s*h', 1),
+            (r'(\d+(?:\.\d+)?)\s*hour', 1),
+            (r'(\d+(?:\.\d+)?)\s*天', 24),
+            (r'(\d+(?:\.\d+)?)\s*day', 24),
+            (r'(\d+(?:\.\d+)?)\s*分钟', 1/60),
+            (r'(\d+(?:\.\d+)?)\s*min', 1/60),
+            (r'(\d+(?:\.\d+)?)\s*minute', 1/60),
+        ]
+        
+        for pattern, multiplier in time_unit_patterns:
+            match = re.search(pattern, time_str)
+            if match:
+                return float(match.group(1)) * multiplier
+        
+        # 如果没有匹配到单位，尝试解析纯数字（默认为小时）
+        try:
+            return float(time_str)
+        except ValueError:
+            return 0
+    
+    def _check_and_auto_complete(self, records, server_type):
+        """检查并自动完成超时的任务"""
+        current_time = datetime.now()
+        updates_needed = []
+        
+        for idx, record in enumerate(records):
+            if pd.isna(record.get('是否完成')) or record.get('是否完成') != 'Yes':
+                start_time_str = record.get('时间', '')
+                estimated_time_str = record.get('预计使用时间', '')
+                
+                if start_time_str and estimated_time_str:
+                    try:
+                        # 解析开始时间
+                        start_time = datetime.strptime(str(start_time_str), '%Y-%m-%d %H:%M:%S')
+                        # 解析预计使用时间
+                        estimated_hours = self._parse_time_duration(estimated_time_str)
+                        # 计算结束时间
+                        end_time = start_time + timedelta(hours=estimated_hours)
+                        
+                        # 如果当前时间超过结束时间，标记为完成
+                        if current_time >= end_time:
+                            updates_needed.append(idx)
+                    except (ValueError, TypeError):
+                        continue
+        
+        # 批量更新状态
+        if updates_needed:
+            if server_type == '9755':
+                self._batch_update_completion_9755(updates_needed)
+            else:
+                self._batch_update_completion_5520(updates_needed)
+        
+        return len(updates_needed)
+    
+    def _batch_update_completion_9755(self, indices):
+        """批量更新9755服务器的完成状态"""
+        if os.path.exists(self.excel_9755):
+            self.backup_file(self.excel_9755)
+            df = pd.read_excel(self.excel_9755)
+            
+            for idx in indices:
+                if 0 <= idx < len(df):
+                    df.at[idx, '是否完成'] = 'Yes'
+                    # 如果实际使用时间为空，则使用预计使用时间
+                    if pd.isna(df.at[idx, '实际使用时间']) or df.at[idx, '实际使用时间'] == '':
+                        df.at[idx, '实际使用时间'] = df.at[idx, '预计使用时间']
+            
+            df.to_excel(self.excel_9755, index=False)
+            self._clear_cache('9755')
+            self._clear_cache('remaining_resources')
+    
+    def _batch_update_completion_5520(self, indices):
+        """批量更新5520服务器的完成状态"""
+        if os.path.exists(self.excel_5520):
+            self.backup_file(self.excel_5520)
+            df = pd.read_excel(self.excel_5520)
+            
+            for idx in indices:
+                if 0 <= idx < len(df):
+                    df.at[idx, '是否完成'] = 'Yes'
+                    # 如果实际使用时间为空，则使用预计使用时间
+                    if pd.isna(df.at[idx, '实际使用时间']) or df.at[idx, '实际使用时间'] == '':
+                        df.at[idx, '实际使用时间'] = df.at[idx, '预计使用时间']
+            
+            df.to_excel(self.excel_5520, index=False)
+            self._clear_cache('5520')
+            self._clear_cache('remaining_resources')
+    
+    def _can_change_to_in_progress(self, record):
+        """检查是否可以将状态改为进行中"""
+        if pd.isna(record.get('是否完成')) or record.get('是否完成') != 'Yes':
+            return True
+        
+        # 如果已经完成，检查是否是因为超时自动完成的
+        start_time_str = record.get('时间', '')
+        estimated_time_str = record.get('预计使用时间', '')
+        
+        if start_time_str and estimated_time_str:
+            try:
+                start_time = datetime.strptime(str(start_time_str), '%Y-%m-%d %H:%M:%S')
+                estimated_hours = self._parse_time_duration(estimated_time_str)
+                end_time = start_time + timedelta(hours=estimated_hours)
+                current_time = datetime.now()
+                
+                # 如果当前时间已经超过预计结束时间，不允许改为进行中
+                if current_time >= end_time:
+                    return False
+            except (ValueError, TypeError):
+                pass
+        
+        return True
+    
+    def _check_remote_desktop_conflict(self, server_type, exclude_index=None):
+        """检查远程桌面是否已被占用"""
+        if server_type == '9755':
+            records = self.get_records_9755()
+        else:
+            records = self.get_records_5520()
+        
+        for idx, record in enumerate(records):
+            if exclude_index is not None and idx == exclude_index:
+                continue
+            
+            if (pd.isna(record.get('是否完成')) or record.get('是否完成') != 'Yes') and \
+               record.get('是否使用远程桌面') == 'Yes':
+                return True
+        
+        return False
 
     def backup_file(self, filename):
         if os.path.exists(filename):
@@ -120,6 +318,15 @@ class ServerManager:
         if os.path.exists(self.excel_9755):
             df = pd.read_excel(self.excel_9755)
             records = df.to_dict('records')
+            
+            # 检查并自动完成超时任务
+            auto_completed = self._check_and_auto_complete(records, '9755')
+            
+            # 如果有自动完成的任务，重新读取数据
+            if auto_completed > 0:
+                df = pd.read_excel(self.excel_9755)
+                records = df.to_dict('records')
+            
             self._set_cache(cache_key, records)
             self._last_modified[cache_key] = self._get_file_modified_time(self.excel_9755)
             return records
@@ -140,6 +347,15 @@ class ServerManager:
         if os.path.exists(self.excel_5520):
             df = pd.read_excel(self.excel_5520)
             records = df.to_dict('records')
+            
+            # 检查并自动完成超时任务
+            auto_completed = self._check_and_auto_complete(records, '5520')
+            
+            # 如果有自动完成的任务，重新读取数据
+            if auto_completed > 0:
+                df = pd.read_excel(self.excel_5520)
+                records = df.to_dict('records')
+            
             self._set_cache(cache_key, records)
             self._last_modified[cache_key] = self._get_file_modified_time(self.excel_5520)
             return records
@@ -147,9 +363,15 @@ class ServerManager:
     
     def update_completion_status_9755(self, row_index, status):
         if os.path.exists(self.excel_9755):
-            self.backup_file(self.excel_9755)
             df = pd.read_excel(self.excel_9755)
             if 0 <= row_index < len(df):
+                record = df.iloc[row_index].to_dict()
+                
+                # 如果要设置为进行中，检查是否允许
+                if status == 'No' and not self._can_change_to_in_progress(record):
+                    return False
+                
+                self.backup_file(self.excel_9755)
                 df.at[row_index, '是否完成'] = status
                 df.to_excel(self.excel_9755, index=False)
                 # 清除相关缓存
@@ -161,9 +383,15 @@ class ServerManager:
     
     def update_completion_status_5520(self, row_index, status):
         if os.path.exists(self.excel_5520):
-            self.backup_file(self.excel_5520)
             df = pd.read_excel(self.excel_5520)
             if 0 <= row_index < len(df):
+                record = df.iloc[row_index].to_dict()
+                
+                # 如果要设置为进行中，检查是否允许
+                if status == 'No' and not self._can_change_to_in_progress(record):
+                    return False
+                
+                self.backup_file(self.excel_5520)
                 df.at[row_index, '是否完成'] = status
                 df.to_excel(self.excel_5520, index=False)
                 # 清除相关缓存
@@ -303,6 +531,32 @@ class ServerManager:
         # 缓存结果
         self._set_cache(cache_key, result)
         return result
+    
+    def update_actual_time_9755(self, row_index, actual_time):
+        """更新9755服务器的实际使用时间"""
+        if os.path.exists(self.excel_9755):
+            self.backup_file(self.excel_9755)
+            df = pd.read_excel(self.excel_9755)
+            if 0 <= row_index < len(df):
+                df.at[row_index, '实际使用时间'] = actual_time
+                df.to_excel(self.excel_9755, index=False)
+                # 清除相关缓存
+                self._clear_cache('9755')
+                return True
+        return False
+    
+    def update_actual_time_5520(self, row_index, actual_time):
+        """更新5520服务器的实际使用时间"""
+        if os.path.exists(self.excel_5520):
+            self.backup_file(self.excel_5520)
+            df = pd.read_excel(self.excel_5520)
+            if 0 <= row_index < len(df):
+                df.at[row_index, '实际使用时间'] = actual_time
+                df.to_excel(self.excel_5520, index=False)
+                # 清除相关缓存
+                self._clear_cache('5520')
+                return True
+        return False
 
 server_manager = ServerManager()
 
@@ -323,33 +577,132 @@ def server_5520():
 
 @app.route('/add_9755', methods=['POST'])
 def add_9755():
-    data = {
-        '时间': request.form['time'],
-        '姓名': request.form['name'],
-        '占用节点': request.form['nodes'],
-        '占用GPU': request.form['gpu'],
-        '是否使用远程桌面': request.form['remote'],
-        '任务类型': request.form['task_type'],
-        '预计使用时间': request.form['estimated_time'],
-        '是否完成': request.form.get('completed', '')
-    }
-    server_manager.add_record_9755(data)
-    return redirect(url_for('server_9755'))
+    try:
+        # 获取表单数据
+        remote = request.form['remote']
+        nodes_str = request.form['nodes']
+        gpu_str = request.form['gpu']
+        
+        # 获取当前资源状态
+        resources = server_manager.calculate_remaining_resources()
+        errors = []
+        
+        # 检查远程桌面冲突
+        if remote == 'Yes' and server_manager._check_remote_desktop_conflict('9755'):
+            errors.append('远程桌面已被占用，请等待当前任务完成')
+        
+        # 检查节点冲突
+        if nodes_str:
+            try:
+                requested_nodes = [int(n.strip()) for n in nodes_str.split(',') if n.strip().isdigit()]
+                occupied_nodes = resources['9755']['nodes_occupied']
+                conflict_nodes = [n for n in requested_nodes if n in occupied_nodes]
+                
+                if conflict_nodes:
+                    errors.append(f'节点 {",".join(map(str, conflict_nodes))} 已被占用')
+                
+                if len(requested_nodes) > resources['9755']['nodes_remaining']:
+                    errors.append(f'请求节点数 ({len(requested_nodes)}) 超过剩余节点数 ({resources["9755"]["nodes_remaining"]})')
+            except ValueError:
+                errors.append('节点格式错误，请输入有效的节点编号')
+        
+        # 检查GPU冲突
+        if gpu_str and gpu_str != 'No':
+            try:
+                if gpu_str.isdigit():
+                    requested_gpus = [int(gpu_str)]
+                elif ',' in gpu_str:
+                    requested_gpus = [int(g.strip()) for g in gpu_str.split(',') if g.strip().isdigit()]
+                else:
+                    requested_gpus = []
+                
+                occupied_gpus = resources['9755']['gpu_occupied']
+                conflict_gpus = [g for g in requested_gpus if g in occupied_gpus]
+                
+                if conflict_gpus:
+                    errors.append(f'GPU {",".join(map(str, conflict_gpus))} 已被占用')
+                
+                if len(requested_gpus) > resources['9755']['gpu_remaining']:
+                    errors.append(f'请求GPU数 ({len(requested_gpus)}) 超过剩余GPU数 ({resources["9755"]["gpu_remaining"]})')
+            except ValueError:
+                errors.append('GPU格式错误，请选择有效的GPU')
+        
+        if errors:
+            return jsonify({'success': False, 'error': '\n'.join(errors)}), 400
+        
+        # 如果验证通过，添加记录
+        data = {
+            '时间': request.form['time'],
+            '姓名': request.form['name'],
+            '占用节点': request.form['nodes'],
+            '占用GPU': request.form['gpu'],
+            '是否使用远程桌面': request.form['remote'],
+            '任务类型': request.form['task_type'],
+            '预计使用时间': request.form['estimated_time'],
+            '实际使用时间': request.form.get('actual_time', ''),
+            '是否完成': request.form.get('completed', '')
+        }
+        server_manager.add_record_9755(data)
+        return redirect(url_for('server_9755'))
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'系统错误: {str(e)}'}), 500
 
 @app.route('/add_5520', methods=['POST'])
 def add_5520():
-    data = {
-        '时间': request.form['time'],
-        '姓名': request.form['name'],
-        '使用核数': request.form['cores'],
-        '占用GPU': request.form['gpu'],
-        '是否使用远程桌面': request.form['remote'],
-        '任务类型': request.form['task_type'],
-        '预计使用时间': request.form['estimated_time'],
-        '是否完成': request.form.get('completed', '')
-    }
-    server_manager.add_record_5520(data)
-    return redirect(url_for('server_5520'))
+    try:
+        # 获取表单数据
+        remote = request.form['remote']
+        cores_str = request.form['cores']
+        gpu_str = request.form['gpu']
+        
+        # 获取当前资源状态
+        resources = server_manager.calculate_remaining_resources()
+        errors = []
+        
+        # 检查远程桌面冲突
+        if remote == 'Yes' and server_manager._check_remote_desktop_conflict('5520'):
+            errors.append('远程桌面已被占用，请等待当前任务完成')
+        
+        # 检查核数资源
+        if cores_str:
+            try:
+                if cores_str.lower() == 'all':
+                    requested_cores = resources['5520']['cores_total']
+                else:
+                    requested_cores = int(cores_str)
+                    if requested_cores <= 0:
+                        errors.append('核数必须大于0')
+                
+                if requested_cores > resources['5520']['cores_remaining']:
+                    errors.append(f'请求核数 ({requested_cores}) 超过剩余核数 ({resources["5520"]["cores_remaining"]})')
+            except ValueError:
+                errors.append('核数格式错误，请输入数字或"all"')
+        
+        # 检查GPU资源
+        if gpu_str == 'Yes' and resources['5520']['gpu_remaining'] == 0:
+            errors.append('GPU已被占用，请等待当前任务完成')
+        
+        if errors:
+            return jsonify({'success': False, 'error': '\n'.join(errors)}), 400
+        
+        # 如果验证通过，添加记录
+        data = {
+            '时间': request.form['time'],
+            '姓名': request.form['name'],
+            '使用核数': request.form['cores'],
+            '占用GPU': request.form['gpu'],
+            '是否使用远程桌面': request.form['remote'],
+            '任务类型': request.form['task_type'],
+            '预计使用时间': request.form['estimated_time'],
+            '实际使用时间': request.form.get('actual_time', ''),
+            '是否完成': request.form.get('completed', '')
+        }
+        server_manager.add_record_5520(data)
+        return redirect(url_for('server_5520'))
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'系统错误: {str(e)}'}), 500
 
 @app.route('/api/resources')
 def api_resources():
@@ -361,13 +714,29 @@ def update_status_9755(row_index):
     status = data.get('status', '')
     if server_manager.update_completion_status_9755(row_index, status):
         return jsonify({'success': True})
-    return jsonify({'success': False}), 400
+    return jsonify({'success': False, 'error': '无法更新状态，可能是因为任务已超时自动完成'}), 400
 
 @app.route('/api/update_status_5520/<int:row_index>', methods=['POST'])
 def update_status_5520(row_index):
     data = request.get_json()
     status = data.get('status', '')
     if server_manager.update_completion_status_5520(row_index, status):
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': '无法更新状态，可能是因为任务已超时自动完成'}), 400
+
+@app.route('/api/update_actual_time_9755/<int:row_index>', methods=['POST'])
+def update_actual_time_9755(row_index):
+    data = request.get_json()
+    actual_time = data.get('actual_time', '')
+    if server_manager.update_actual_time_9755(row_index, actual_time):
+        return jsonify({'success': True})
+    return jsonify({'success': False}), 400
+
+@app.route('/api/update_actual_time_5520/<int:row_index>', methods=['POST'])
+def update_actual_time_5520(row_index):
+    data = request.get_json()
+    actual_time = data.get('actual_time', '')
+    if server_manager.update_actual_time_5520(row_index, actual_time):
         return jsonify({'success': True})
     return jsonify({'success': False}), 400
 
