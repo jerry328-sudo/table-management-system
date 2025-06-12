@@ -6,7 +6,9 @@
       "Bash(pip install:*)",
       "Bash(source:*)",
       "Bash(ls:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git config:*)",
+      "Bash(git commit:*)"
     ],
     "deny": []
   }
