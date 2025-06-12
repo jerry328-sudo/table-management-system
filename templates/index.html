@@ -87,3 +87,104 @@
     </div>
 </div>
 {% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 实时更新资源状态
+    function updateResourceStatus() {
+        fetch('/api/resources')
+            .then(response => response.json())
+            .then(data => {
+                // 更新9755服务器显示
+                const nodes9755Text = document.getElementById('nodes-9755-text');
+                const nodes9755Detail = document.getElementById('nodes-9755-detail');
+                const nodes9755Progress = document.getElementById('nodes-9755-progress');
+                
+                if (nodes9755Text) {
+                    nodes9755Text.textContent = `节点: ${data['9755']['nodes_used']}/${data['9755']['nodes_total']} (剩余: ${data['9755']['nodes_remaining']})`;
+                }
+                if (nodes9755Detail) {
+                    const availableNodes = data['9755']['nodes_available'].length > 0 ? data['9755']['nodes_available'].join(', ') : '无';
+                    const occupiedNodes = data['9755']['nodes_occupied'].length > 0 ? data['9755']['nodes_occupied'].join(', ') : '无';
+                    nodes9755Detail.innerHTML = `可用节点: ${availableNodes} | 占用节点: ${occupiedNodes}`;
+                }
+                if (nodes9755Progress) {
+                    const percentage = (data['9755']['nodes_used'] / data['9755']['nodes_total'] * 100);
+                    nodes9755Progress.style.width = percentage + '%';
+                }
+                
+                const gpu9755Text = document.getElementById('gpu-9755-text');
+                const gpu9755Detail = document.getElementById('gpu-9755-detail');
+                const gpu9755Progress = document.getElementById('gpu-9755-progress');
+                
+                if (gpu9755Text) {
+                    gpu9755Text.textContent = `GPU: ${data['9755']['gpu_used']}/${data['9755']['gpu_total']} (剩余: ${data['9755']['gpu_remaining']})`;
+                }
+                if (gpu9755Detail) {
+                    const availableGPUs = data['9755']['gpu_available'].length > 0 ? data['9755']['gpu_available'].join(', ') : '无';
+                    const occupiedGPUs = data['9755']['gpu_occupied'].length > 0 ? data['9755']['gpu_occupied'].join(', ') : '无';
+                    gpu9755Detail.innerHTML = `可用GPU: ${availableGPUs} | 占用GPU: ${occupiedGPUs}`;
+                }
+                if (gpu9755Progress) {
+                    const percentage = (data['9755']['gpu_used'] / data['9755']['gpu_total'] * 100);
+                    gpu9755Progress.style.width = percentage + '%';
+                }
+                
+                const remote9755Text = document.getElementById('remote-9755-text');
+                if (remote9755Text) {
+                    remote9755Text.textContent = `远程桌面: ${data['9755']['remote_desktop_used']} 人在使用`;
+                }
+                
+                // 更新5520服务器显示
+                const cores5520Text = document.getElementById('cores-5520-text');
+                const cores5520Progress = document.getElementById('cores-5520-progress');
+                
+                if (cores5520Text) {
+                    cores5520Text.textContent = `核数: ${data['5520']['cores_used']}/${data['5520']['cores_total']} (剩余: ${data['5520']['cores_remaining']})`;
+                }
+                if (cores5520Progress) {
+                    const percentage = (data['5520']['cores_used'] / data['5520']['cores_total'] * 100);
+                    cores5520Progress.style.width = percentage + '%';
+                }
+                
+                const gpu5520Text = document.getElementById('gpu-5520-text');
+                const gpu5520Progress = document.getElementById('gpu-5520-progress');
+                
+                if (gpu5520Text) {
+                    gpu5520Text.textContent = `GPU: ${data['5520']['gpu_used']}/${data['5520']['gpu_total']} (剩余: ${data['5520']['gpu_remaining']})`;
+                }
+                if (gpu5520Progress) {
+                    const percentage = (data['5520']['gpu_used'] / data['5520']['gpu_total'] * 100);
+                    gpu5520Progress.style.width = percentage + '%';
+                }
+                
+                const remote5520Text = document.getElementById('remote-5520-text');
+                if (remote5520Text) {
+                    remote5520Text.textContent = `远程桌面: ${data['5520']['remote_desktop_used']} 人在使用`;
+                }
+            })
+            .catch(error => {
+                console.error('Error updating resource status:', error);
+            });
+    }
+    
+    // 初始加载和定期更新
+    updateResourceStatus();
+    
+    // 每5秒更新一次资源状态
+    setInterval(updateResourceStatus, 5000);
+    
+    // 页面获得焦点时立即更新（从其他页面返回时）
+    window.addEventListener('focus', updateResourceStatus);
+    
+    // 如果URL包含refresh参数，立即刷新
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('refresh')) {
+        updateResourceStatus();
+        // 清除URL参数
+        history.replaceState({}, document.title, window.location.pathname);
+    }
+});
+</script>
+{% endblock %}

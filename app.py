@@ -91,6 +91,8 @@ class ServerManager:
         df.to_excel(self.excel_9755, index=False)
         # 清除相关缓存
         self._clear_cache('9755')
+        # 立即清除资源缓存以强制刷新
+        self._clear_cache('remaining_resources')
     
     def add_record_5520(self, data):
         self.backup_file(self.excel_5520)
@@ -100,6 +102,8 @@ class ServerManager:
         df.to_excel(self.excel_5520, index=False)
         # 清除相关缓存
         self._clear_cache('5520')
+        # 立即清除资源缓存以强制刷新
+        self._clear_cache('remaining_resources')
     
     def get_records_9755(self):
         cache_key = 'records_9755'
@@ -150,6 +154,8 @@ class ServerManager:
                 df.to_excel(self.excel_9755, index=False)
                 # 清除相关缓存
                 self._clear_cache('9755')
+                # 立即清除资源缓存以强制刷新
+                self._clear_cache('remaining_resources')
                 return True
         return False
     
@@ -162,6 +168,8 @@ class ServerManager:
                 df.to_excel(self.excel_5520, index=False)
                 # 清除相关缓存
                 self._clear_cache('5520')
+                # 立即清除资源缓存以强制刷新
+                self._clear_cache('remaining_resources')
                 return True
         return False
     
