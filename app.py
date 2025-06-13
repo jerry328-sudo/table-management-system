@@ -27,6 +27,9 @@ class ServerManager:
             os.makedirs(self.backup_dir)
         
         self.init_excel_files()
+        
+        # 启动定时检查任务
+        self._start_periodic_check()
     
     def init_excel_files(self):
         columns_9755 = ['时间', '姓名', '占用节点', '占用GPU', '是否使用远程桌面', '任务类型', '预计使用时间', '实际使用时间', '是否完成']
@@ -160,74 +163,6 @@ class ServerManager:
         except ValueError:
             return 0
     
-    def _check_and_auto_complete(self, records, server_type):
-        """检查并自动完成超时的任务"""
-        current_time = datetime.now()
-        updates_needed = []
-        
-        for idx, record in enumerate(records):
-            if pd.isna(record.get('是否完成')) or record.get('是否完成') != 'Yes':
-                start_time_str = record.get('时间', '')
-                estimated_time_str = record.get('预计使用时间', '')
-                
-                if start_time_str and estimated_time_str:
-                    try:
-                        # 解析开始时间
-                        start_time = datetime.strptime(str(start_time_str), '%Y-%m-%d %H:%M:%S')
-                        # 解析预计使用时间
-                        estimated_hours = self._parse_time_duration(estimated_time_str)
-                        # 计算结束时间
-                        end_time = start_time + timedelta(hours=estimated_hours)
-                        
-                        # 如果当前时间超过结束时间，标记为完成
-                        if current_time >= end_time:
-                            updates_needed.append(idx)
-                    except (ValueError, TypeError):
-                        continue
-        
-        # 批量更新状态
-        if updates_needed:
-            if server_type == '9755':
-                self._batch_update_completion_9755(updates_needed)
-            else:
-                self._batch_update_completion_5520(updates_needed)
-        
-        return len(updates_needed)
-    
-    def _batch_update_completion_9755(self, indices):
-        """批量更新9755服务器的完成状态"""
-        if os.path.exists(self.excel_9755):
-            self.backup_file(self.excel_9755)
-            df = pd.read_excel(self.excel_9755)
-            
-            for idx in indices:
-                if 0 <= idx < len(df):
-                    df.at[idx, '是否完成'] = 'Yes'
-                    # 如果实际使用时间为空，则使用预计使用时间
-                    if pd.isna(df.at[idx, '实际使用时间']) or df.at[idx, '实际使用时间'] == '':
-                        df.at[idx, '实际使用时间'] = df.at[idx, '预计使用时间']
-            
-            df.to_excel(self.excel_9755, index=False)
-            self._clear_cache('9755')
-            self._clear_cache('remaining_resources')
-    
-    def _batch_update_completion_5520(self, indices):
-        """批量更新5520服务器的完成状态"""
-        if os.path.exists(self.excel_5520):
-            self.backup_file(self.excel_5520)
-            df = pd.read_excel(self.excel_5520)
-            
-            for idx in indices:
-                if 0 <= idx < len(df):
-                    df.at[idx, '是否完成'] = 'Yes'
-                    # 如果实际使用时间为空，则使用预计使用时间
-                    if pd.isna(df.at[idx, '实际使用时间']) or df.at[idx, '实际使用时间'] == '':
-                        df.at[idx, '实际使用时间'] = df.at[idx, '预计使用时间']
-            
-            df.to_excel(self.excel_5520, index=False)
-            self._clear_cache('5520')
-            self._clear_cache('remaining_resources')
-    
     def _can_change_to_in_progress(self, record):
         """检查是否可以将状态改为进行中"""
         if pd.isna(record.get('是否完成')) or record.get('是否完成') != 'Yes':
@@ -319,14 +254,6 @@ class ServerManager:
             df = pd.read_excel(self.excel_9755)
             records = df.to_dict('records')
             
-            # 检查并自动完成超时任务
-            auto_completed = self._check_and_auto_complete(records, '9755')
-            
-            # 如果有自动完成的任务，重新读取数据
-            if auto_completed > 0:
-                df = pd.read_excel(self.excel_9755)
-                records = df.to_dict('records')
-            
             self._set_cache(cache_key, records)
             self._last_modified[cache_key] = self._get_file_modified_time(self.excel_9755)
             return records
@@ -348,14 +275,6 @@ class ServerManager:
             df = pd.read_excel(self.excel_5520)
             records = df.to_dict('records')
             
-            # 检查并自动完成超时任务
-            auto_completed = self._check_and_auto_complete(records, '5520')
-            
-            # 如果有自动完成的任务，重新读取数据
-            if auto_completed > 0:
-                df = pd.read_excel(self.excel_5520)
-                records = df.to_dict('records')
-            
             self._set_cache(cache_key, records)
             self._last_modified[cache_key] = self._get_file_modified_time(self.excel_5520)
             return records
@@ -373,6 +292,34 @@ class ServerManager:
                 
                 self.backup_file(self.excel_9755)
                 df.at[row_index, '是否完成'] = status
+                
+                # 如果用户手动设置为已完成，自动计算实际使用时间
+                if status == 'Yes':
+                    start_time_str = record.get('时间', '')
+                    if start_time_str:
+                        try:
+                            start_time = datetime.strptime(str(start_time_str), '%Y-%m-%d %H:%M:%S')
+                            current_time = datetime.now()
+                            duration = current_time - start_time
+                            
+                            # 计算实际使用时间（小时）
+                            hours = duration.total_seconds() / 3600
+                            if hours < 1:
+                                actual_time = f"{int(duration.total_seconds() / 60)}分钟"
+                            elif hours < 24:
+                                actual_time = f"{hours:.1f}小时"
+                            else:
+                                days = int(hours / 24)
+                                remaining_hours = hours % 24
+                                if remaining_hours > 0:
+                                    actual_time = f"{days}天{remaining_hours:.1f}小时"
+                                else:
+                                    actual_time = f"{days}天"
+                            
+                            df.at[row_index, '实际使用时间'] = actual_time
+                        except (ValueError, TypeError):
+                            pass
+                
                 df.to_excel(self.excel_9755, index=False)
                 # 清除相关缓存
                 self._clear_cache('9755')
@@ -393,6 +340,34 @@ class ServerManager:
                 
                 self.backup_file(self.excel_5520)
                 df.at[row_index, '是否完成'] = status
+                
+                # 如果用户手动设置为已完成，自动计算实际使用时间
+                if status == 'Yes':
+                    start_time_str = record.get('时间', '')
+                    if start_time_str:
+                        try:
+                            start_time = datetime.strptime(str(start_time_str), '%Y-%m-%d %H:%M:%S')
+                            current_time = datetime.now()
+                            duration = current_time - start_time
+                            
+                            # 计算实际使用时间（小时）
+                            hours = duration.total_seconds() / 3600
+                            if hours < 1:
+                                actual_time = f"{int(duration.total_seconds() / 60)}分钟"
+                            elif hours < 24:
+                                actual_time = f"{hours:.1f}小时"
+                            else:
+                                days = int(hours / 24)
+                                remaining_hours = hours % 24
+                                if remaining_hours > 0:
+                                    actual_time = f"{days}天{remaining_hours:.1f}小时"
+                                else:
+                                    actual_time = f"{days}天"
+                            
+                            df.at[row_index, '实际使用时间'] = actual_time
+                        except (ValueError, TypeError):
+                            pass
+                
                 df.to_excel(self.excel_5520, index=False)
                 # 清除相关缓存
                 self._clear_cache('5520')
@@ -557,6 +532,93 @@ class ServerManager:
                 self._clear_cache('5520')
                 return True
         return False
+    
+    def _start_periodic_check(self):
+        """启动定时检查任务"""
+        def periodic_check():
+            while True:
+                try:
+                    self._periodic_status_check()
+                except Exception as e:
+                    print(f"定时检查任务出错: {str(e)}")
+                time.sleep(300)  # 5分钟 = 300秒
+        
+        check_thread = threading.Thread(target=periodic_check)
+        check_thread.daemon = True
+        check_thread.start()
+    
+    def _periodic_status_check(self):
+        """每5分钟执行的状态检查"""
+        current_time = datetime.now()
+        
+        # 检查9755服务器
+        self._check_and_update_records(self.excel_9755, '9755', current_time)
+        
+        # 检查5520服务器
+        self._check_and_update_records(self.excel_5520, '5520', current_time)
+    
+    def _check_and_update_records(self, excel_file, server_type, current_time):
+        """检查并更新记录状态"""
+        if not os.path.exists(excel_file):
+            return
+        
+        df = pd.read_excel(excel_file)
+        if df.empty:
+            return
+        
+        updated = False
+        
+        for idx, row in df.iterrows():
+            start_time_str = row.get('时间', '')
+            estimated_time_str = row.get('预计使用时间', '')
+            completion_status = row.get('是否完成', '')
+            
+            if not start_time_str or not estimated_time_str:
+                continue
+            
+            try:
+                start_time = datetime.strptime(str(start_time_str), '%Y-%m-%d %H:%M:%S')
+                estimated_hours = self._parse_time_duration(estimated_time_str)
+                end_time = start_time + timedelta(hours=estimated_hours)
+                
+                # 首先检查是否超时
+                if current_time >= end_time and (pd.isna(completion_status) or completion_status != 'Yes'):
+                    # 任务超时，自动标记为已完成
+                    df.at[idx, '是否完成'] = 'Yes'
+                    # 设置实际使用时间为预计使用时间
+                    if pd.isna(df.at[idx, '实际使用时间']) or df.at[idx, '实际使用时间'] == '':
+                        df.at[idx, '实际使用时间'] = estimated_time_str
+                    updated = True
+                    
+                # 如果没有超时但状态为已完成，更新实际使用时间为当前时间
+                elif current_time < end_time and completion_status == 'Yes':
+                    duration = current_time - start_time
+                    hours = duration.total_seconds() / 3600
+                    
+                    if hours < 1:
+                        actual_time = f"{max(1, int(duration.total_seconds() / 60))}分钟"
+                    elif hours < 24:
+                        actual_time = f"{hours:.1f}小时"
+                    else:
+                        days = int(hours / 24)
+                        remaining_hours = hours % 24
+                        if remaining_hours > 0:
+                            actual_time = f"{days}天{remaining_hours:.1f}小时"
+                        else:
+                            actual_time = f"{days}天"
+                    
+                    df.at[idx, '实际使用时间'] = actual_time
+                    updated = True
+                    
+            except (ValueError, TypeError):
+                continue
+        
+        # 如果有更新，保存文件并清除缓存
+        if updated:
+            self.backup_file(excel_file)
+            df.to_excel(excel_file, index=False)
+            self._clear_cache(server_type)
+            self._clear_cache('remaining_resources')
 
 server_manager = ServerManager()
 
