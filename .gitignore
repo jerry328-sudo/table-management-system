@@ -6,3 +6,4 @@ __pycache__/
 
 # 忽略所有名为 bak 的文件夹及其内容
 bak/
+table/
