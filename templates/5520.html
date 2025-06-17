@@ -154,7 +154,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const remote = document.getElementById('remote').value;
         const cores = document.getElementById('cores').value;
         const gpu = document.getElementById('gpu').value;
-        
+        const estimated = document.getElementById('estimated_time').value.trim();
+
+        // 验证预计使用时间格式是否为时间段
+        const rangePattern = /^\d{4}[.\/\-]\d{1,2}[.\/\-]\d{1,2}\s*[~\-\u5230\u81f3]\s*(?:\d{4}[.\/\-])?\d{1,2}[.\/\-]\d{1,2}$/;
+        if (!rangePattern.test(estimated)) {
+            alert('预计使用时间格式不正确，请输入时间段，例如: 2025.6.17~2025.6.19');
+            return;
+        }
+
         // 获取当前资源状态进行验证
         fetch('/api/resources')
             .then(response => response.json())
