@@ -286,8 +286,8 @@ class ServerManager:
             if 0 <= row_index < len(df):
                 record = df.iloc[row_index].to_dict()
                 
-                # 如果要设置为进行中，检查是否允许
-                if status == 'No' and not self._can_change_to_in_progress(record):
+                # 如果要从已完成改为进行中，检查是否允许（超时后禁止）
+                if status == 'No' and record.get('是否完成') == 'Yes' and not self._can_change_to_in_progress(record):
                     return False
                 
                 self.backup_file(self.excel_9755)
@@ -334,8 +334,8 @@ class ServerManager:
             if 0 <= row_index < len(df):
                 record = df.iloc[row_index].to_dict()
                 
-                # 如果要设置为进行中，检查是否允许
-                if status == 'No' and not self._can_change_to_in_progress(record):
+                # 如果要从已完成改为进行中，检查是否允许（超时后禁止）
+                if status == 'No' and record.get('是否完成') == 'Yes' and not self._can_change_to_in_progress(record):
                     return False
                 
                 self.backup_file(self.excel_5520)
